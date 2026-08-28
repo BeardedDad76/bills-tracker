@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+<title>Bills Tracker — BeardedDad</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0f1117; font-family: 'Inter','Segoe UI',sans-serif; color: #e8eaf0; }
+  input[type=number]::-webkit-inner-spin-button,
+  input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
+  input[type=number] { -moz-appearance: textfield; }
+  ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: #1a1f2e; }
+  ::-webkit-scrollbar-thumb { background: #2a2f3e; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useCallback } = React;
+
+// localStorage wrapper to match window.storage API used in Claude artifact
+// BAKED_DATA_START
+const BAKED_DATA = null;
+// BAKED_DATA_END
+
+window.storage = {
+  get: async (key) => {
+    // Try baked data first, then localStorage
+    if (key === "btrk-v6" && BAKED_DATA) return { value: BAKED_DATA };
+    try { const v = localStorage.getItem(key); return v ? { value: v } : null; } catch { return null; }
+  },
+  set: async (key, value) => {
+    try { localStorage.setItem(key, value); return true; } catch { return null; }
+  }
+};
+
+// Save & Bake: rewrites this HTML file with current data baked in
+window.saveAndBake = (dataJson) => {
+  try {
+    const escaped = dataJson.replace(/\/g, '\\').replace(/`/g, '\`');
+    // Read the current page HTML and replace the baked data section
+    const html = document.documentElement.outerHTML;
+    const updated = html
+      .replace(/\/\/\s*BAKED_DATA_START[\s\S]*?\/\/\s*BAKED_DATA_END/, 
+        `// BAKED_DATA_START\nconst BAKED_DATA = \`${escaped}\`;\n// BAKED_DATA_END`);
+    const blob = new Blob([updated], { type: "text/html" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "BeardedDad-Bills-Tracker.html";
+    a.click();
+    URL.revokeObjectURL(a.href);
+    return true;
+  } catch(e) { console.error(e); return false; }
+};
+
+const fmt = (n) => n.toLocaleString("en-US", { style: "currency", currency: "USD" });
+
+const PERIOD_COLORS = {
+  period1:  { accent: "#6366f1", dark: "#312e81", label: "Check 1" },
+  period2:  { accent: "#0ea5e9", dark: "#0c4a6e", label: "Check 2" },
+  period3:  { accent: "#f59e0b", dark: "#78350f", label: "Check 3 \u2736" },
+  snowball: { accent: "#22c55e", dark: "#14532d", label: "\u2745 Snowball" },
+};
+
+const P1 = [
+  { id: 101, name: "PennMAC",             dueDay: 1,  amount: "",       autopay: false, lateFee: true,  paid: false, active: true },
+  { id: 102, name: "Beyond Finance",       dueDay: 1,  amount: "201.34", autopay: true,  lateFee: false, paid: false, active: true },
+  { id: 103, name: "Storage Unit",         dueDay: 1,  amount: "147.00", autopay: false, lateFee: true,  paid: false, active: true },
+  { id: 104, name: "Avant",                dueDay: 1,  amount: "25.00",  autopay: false, lateFee: true,  paid: false, active: true },
+  { id: 105, name: "Discover",             dueDay: 1,  amount: "235.84", autopay: false, lateFee: true,  paid: false, active: true },
+  { id: 106, name: "Square CC",            dueDay: 2,  amount: "32.00",  autopay: true,  lateFee: false, paid: false, active: true },
+  { id: 107, name: "Netflix",              dueDay: 3,  amount: "",       autopay: true,  lateFee: false, paid: false, active: true },
+  { id: 108, name: "Lightgig",             dueDay: 4,  amount: "84.00",  autopay: true,  lateFee: false, paid: false, active: true },
+  { id: 109, name: "YouTubeTV",            dueDay: 5,  amount: "",       autopay: true,  lateFee: false, paid: false, active: true },
+  { id: 110, name: "ChatGPT",              dueDay: 8,  amount: "",       autopay: true,  lateFee: false, paid: false, active: true },
+  { id: 111, name: "Mission Lane",         dueDay: 9,  amount: "96.37",  autopay: false, lateFee: true,  paid: false, active: true },
+  { id: 112, name: "Concora Credit",       dueDay: 14, amount: "97.00",  autopay: false, lateFee: true,  paid: false, active: true },
+  { id: 113, name: "Allstate (Auto)",      dueDay: 15, amount: "475.77", autopay: true,  lateFee: false, paid: false, active: true },
+  { id: 114, name: "IRS",                  dueDay: 15, amount: "153.00", autopay: true,  lateFee: false, paid: false, active: true },
+  { id: 115, name: "Credit One (Silver)",  dueDay: 15, amount: "10.62",  autopay: false, lateFee: true,  paid: false, active: true },
+  { id: 116, name: "Credit One (Red)",     dueDay: 15, amount: "30.00",  autopay: false, lateFee: true,  paid: false, active: true },
+  { id: 117, name: "Adobe",                dueDay: 18, amount: "20.72",  autopay: true,  lateFee: false, paid: false, active: true },
+  { id: 118, name: "Severance Water",      dueDay: 19, amount: "138.64", autopay: true,  lateFee: false, paid: false, active: true },
+  { id: 119, name: "Spotify",              dueDay: 21, amount: "12.99",  autopay: true,  lateFee: false, paid: false, active: true },
+  { id: 120, name: "Instagram",            dueDay: 22, amount: "23.99",  autopay: true,  lateFee: false, paid: false, active: true },
+  { id: 121, name: "Google One",           dueDay: 22, amount: "1.99",   autopay: true,  lateFee: false, paid: false, active: true },
+  { id: 122, name: "VZ",                   dueDay: 23, amount: "444.37", autopay: true,  lateFee: false, paid: false, active: true },
+  { id: 123, name: "REA",                  dueDay: 26, amount: "116.15", autopay: false, lateFee: false, paid: false, active: true },
+  { id: 124, name: "Xcel",                 dueDay: 28, amount: "101.04", autopay: false, lateFee: false, paid: false, active: true },
+];
+const P2 = [
+  { id: 201, name: "PennMAC",       dueDay: 1, amount: "2601.35", autopay: false, lateFee: true,  paid: false, active: true },
+  { id: 202, name: "Beyond Finance", dueDay: 1, amount: "201.34",  autopay: true,  lateFee: false, paid: false, active: true },
+];
+const P3 = [
+  { id: 301, name: "Beyond Finance", dueDay: 1, amount: "201.34", autopay: true, lateFee: false, paid: false, active: true },
+];
+const DEFAULT_DEBTS = [
+  { id: "d1", name: "Discover",         minimum: 0,     balance: 0,       creditLine: 300,  asOf: "26-May" },
+  { id: "d2", name: "Credit One (Sil)", minimum: 10.62, balance: 112.81,  creditLine: 500,  asOf: "26-May" },
+  { id: "d3", name: "Avant",            minimum: 25.00, balance: 956.30,  creditLine: 1500, asOf: "26-May" },
+  { id: "d4", name: "Credit One (Red)", minimum: 30.00, balance: 444.63,  creditLine: 1000, asOf: "26-May" },
+  { id: "d5", name: "Mission Lane",     minimum: 96.37, balance: 2075.05, creditLine: 2000, asOf: "26-May" },
+  { id: "d6", name: "Concora Credit",   minimum: 97.00, balance: 1939.69, creditLine: 2000, asOf: "26-May" },
+];
+
+function buildSchedule(count = 104) {
+  const start = new Date("2026-06-26"); const days = [];
+  for (let i = 0; i < count; i++) { const d = new Date(start); d.setDate(start.getDate() + i * 14); days.push(d); }
+  return days;
+}
+const SCHEDULE = buildSchedule();
+function formatPayDate(d) { return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); }
+function getNextBonusPayday(fromIdx) {
+  const byMonth = {};
+  SCHEDULE.forEach((d, i) => { if (i < fromIdx) return; const key = d.getFullYear() + "-" + d.getMonth(); if (!byMonth[key]) byMonth[key] = []; byMonth[key].push(d); });
+  for (const days of Object.values(byMonth)) { if (days.length === 3) return days[2]; }
+  return null;
+}
+function getCurrentAndNextPaydays() {
+  const today = new Date(); today.setHours(0,0,0,0); let idx = 0;
+  for (let i = 0; i < SCHEDULE.length; i++) { const d = new Date(SCHEDULE[i]); d.setHours(0,0,0,0); if (d <= today) idx = i; else break; }
+  return { check1: SCHEDULE[idx], check2: SCHEDULE[idx+1], bonus: getNextBonusPayday(idx) };
+}
+const INIT = getCurrentAndNextPaydays();
+const DEFAULT_PERIODS = [
+  { id: "period1", paycheckDate: formatPayDate(INIT.check1), bills: P1 },
+  { id: "period2", paycheckDate: formatPayDate(INIT.check2), bills: P2 },
+  { id: "period3", paycheckDate: INIT.bonus ? formatPayDate(INIT.bonus) : "Bonus month", bills: P3 },
+];
+const DEFAULT_PC = { period1: "3143.86", period2: "3143.86", period3: "3143.86" };
+
+function BillsTracker() {
+  const [periods, setPeriods]         = useState(DEFAULT_PERIODS);
+  const [paycheck, setPaycheck]       = useState(DEFAULT_PC);
+  const [activePid, setActivePid]     = useState("period1");
+  const [view, setView]               = useState("tracker");
+  const [editingId, setEditingId]     = useState(null);
+  const [newBill, setNewBill]         = useState({ name: "", dueDay: "", amount: "", autopay: false, lateFee: false });
+  const [showAdd, setShowAdd]         = useState(false);
+  const [billFilter, setBillFilter]   = useState("all");
+  const [history, setHistory]         = useState([]);
+  const [showHist, setShowHist]       = useState(false);
+  const [lastSaved, setLastSaved]     = useState(null);
+  const [debts, setDebts]             = useState(DEFAULT_DEBTS);
+  const [editingDebt, setEditingDebt] = useState(null);
+  const [showAddDebt, setShowAddDebt] = useState(false);
+  const [newDebt, setNewDebt]         = useState({ name: "", minimum: "", balance: "", creditLine: "", asOf: "" });
+  const [ready, setReady]             = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const local = await window.storage.get("btrk-v6");
+        if (local) {
+          const d = JSON.parse(local.value);
+          if (d.periods)   setPeriods(d.periods);
+          if (d.paycheck)  setPaycheck(d.paycheck);
+          if (d.activePid) setActivePid(d.activePid);
+          if (d.debts)     setDebts(d.debts);
+          if (d.history)   setHistory(d.history || []);
+        }
+      } catch {}
+      setReady(true);
+    })();
+  }, []);
+
+  const persist = useCallback((p, pc, ap, db, hist) => {
+    const payload = JSON.stringify({ periods: p, paycheck: pc, activePid: ap, debts: db, history: hist || [] });
+    window.storage.set("btrk-v6", payload).catch(() => {});
+    setLastSaved(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+  }, []);
+
+  const isSnowball = activePid === "snowball";
+  const period     = periods.find(p => p.id === activePid) || periods[0];
+  const col        = PERIOD_COLORS[activePid] || PERIOD_COLORS.period1;
+  const activeBills = isSnowball ? [] : [...period.bills].filter(b => b.active).sort((a,b) => a.dueDay - b.dueDay);
+  const pcNum      = parseFloat(paycheck[activePid]) || 0;
+  const totalBills = activeBills.reduce((s,b) => s + (parseFloat(b.amount)||0), 0);
+  const paidAmt    = activeBills.filter(b=>b.paid).reduce((s,b) => s+(parseFloat(b.amount)||0), 0);
+  const paidCount  = activeBills.filter(b=>b.paid).length;
+  const remaining  = pcNum - totalBills;
+  const pct        = pcNum > 0 ? Math.round((totalBills/pcNum)*100) : 0;
+  const alerts     = activeBills.filter(b => b.lateFee && !b.autopay && !b.paid);
+
+  const mutatePeriod = (nb) => { const next = periods.map(p => p.id===activePid ? {...p,bills:nb} : p); setPeriods(next); persist(next,paycheck,activePid,debts,history); };
+  const togglePaid   = (id) => mutatePeriod(period.bills.map(b => b.id===id ? {...b,paid:!b.paid} : b));
+  const updateAmt    = (id,v) => mutatePeriod(period.bills.map(b => b.id===id ? {...b,amount:v} : b));
+  const updateDueDay = (id,day) => mutatePeriod(period.bills.map(b => b.id===id ? {...b,dueDay:day} : b));
+  const toggleOn     = (id) => mutatePeriod(period.bills.map(b => b.id===id ? {...b,active:!b.active} : b));
+  const addBill = () => { if (!newBill.name.trim()) return; mutatePeriod([...period.bills,{...newBill,id:Date.now(),active:true,paid:false}]); setNewBill({name:"",dueDay:"",amount:"",autopay:false,lateFee:false}); setShowAdd(false); };
+
+  const closePeriod = () => {
+    const snap = { period: col.label, date: new Date().toLocaleDateString(), paycheck: pcNum, totalBills, remaining };
+    const h = [...history, snap]; setHistory(h);
+    const resetBills = period.bills.map(b => ({...b,paid:false}));
+    const today = new Date(); today.setHours(0,0,0,0);
+    const upcoming = SCHEDULE.filter(d => { const x=new Date(d); x.setHours(0,0,0,0); return x>today; });
+    const nc1 = upcoming[0], nc2 = upcoming[1];
+    const nc1Idx = SCHEDULE.indexOf(nc1);
+    const nb = getNextBonusPayday(nc1Idx >= 0 ? nc1Idx : 0);
+    const next = periods.map(p => {
+      if (p.id===activePid) return {...p,bills:resetBills};
+      if (p.id==="period1" && nc1) return {...p,paycheckDate:formatPayDate(nc1)};
+      if (p.id==="period2" && nc2) return {...p,paycheckDate:formatPayDate(nc2)};
+      if (p.id==="period3" && nb)  return {...p,paycheckDate:formatPayDate(nb)};
+      return p;
+    });
+    setPeriods(next); persist(next,paycheck,activePid,debts,h);
+  };
+
+  const setPC = (v) => { const pc={...paycheck,[activePid]:v}; setPaycheck(pc); persist(periods,pc,activePid,debts,history); };
+  const switchPeriod = (id) => { setActivePid(id); setEditingId(null); setEditingDebt(null); persist(periods,paycheck,id,debts,history); };
+  const updateDebtField = (id,field,value) => { const next=debts.map(d=>d.id===id?{...d,[field]:value}:d); setDebts(next); persist(periods,paycheck,activePid,next,history); };
+  const addDebt = () => { if(!newDebt.name.trim()) return; const next=[...debts,{...newDebt,id:"d"+Date.now(),minimum:parseFloat(newDebt.minimum)||0,balance:parseFloat(newDebt.balance)||0,creditLine:parseFloat(newDebt.creditLine)||0}]; setDebts(next); persist(periods,paycheck,activePid,next,history); setNewDebt({name:"",minimum:"",balance:"",creditLine:"",asOf:""}); setShowAddDebt(false); };
+  const deleteDebt = (id) => { const next=debts.filter(d=>d.id!==id); setDebts(next); persist(periods,paycheck,activePid,next,history); };
+
+  const sortedDebts = editingDebt
+    ? [...debts].sort((a,b) => { const ai=DEFAULT_DEBTS.findIndex(d=>d.id===a.id), bi=DEFAULT_DEBTS.findIndex(d=>d.id===b.id); return (ai!==-1&&bi!==-1) ? ai-bi : (parseFloat(a.balance)||0)-(parseFloat(b.balance)||0); })
+    : [...debts].sort((a,b) => (parseFloat(a.balance)||0)-(parseFloat(b.balance)||0));
+  const totalBalance    = debts.reduce((s,d)=>s+(parseFloat(d.balance)||0),0);
+  const totalMinimum    = debts.reduce((s,d)=>s+(parseFloat(d.minimum)||0),0);
+  const totalCreditLine = debts.reduce((s,d)=>s+(parseFloat(d.creditLine)||0),0);
+  const totalAvailable  = debts.reduce((s,d)=>s+Math.max(0,(parseFloat(d.creditLine)||0)-(parseFloat(d.balance)||0)),0);
+  const utilizationPct  = totalCreditLine>0 ? Math.round((totalBalance/totalCreditLine)*100) : 0;
+
+  if (!ready) return <div style={{background:"#0f1117",minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",color:"#8b92a5"}}>Loading…</div>;
+
+  const ALL_TABS = [...DEFAULT_PERIODS.map(p=>({id:p.id})),{id:"snowball"}];
+
+  return (
+    <div style={{fontFamily:"'Inter','Segoe UI',sans-serif",background:"#0f1117",minHeight:"100vh",color:"#e8eaf0"}}>
+      <div style={{background:"#13161f",borderBottom:"1px solid #1e2230",padding:"14px 16px 0",position:"sticky",top:0,zIndex:50}}>
+        <div style={{maxWidth:680,margin:"0 auto"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <div>
+              <div style={{fontSize:10,letterSpacing:2,color:"#6b7280",textTransform:"uppercase"}}>Pay Period Manager</div>
+              <div style={{fontSize:20,fontWeight:800,color:"#f0f2f8"}}>Bills Tracker</div>
+            </div>
+            <div style={{display:"flex",gap:6}}>
+              {!isSnowball && (<>
+                <button onClick={()=>setView("tracker")} style={navBtn(view==="tracker",col.accent)}>Tracker</button>
+                <button onClick={()=>setView("manage")}  style={navBtn(view==="manage", col.accent)}>Manage</button>
+              </>)}
+            </div>
+          </div>
+          <div style={{display:"flex"}}>
+            {ALL_TABS.map(t => {
+              const c=PERIOD_COLORS[t.id]||PERIOD_COLORS.period1, on=t.id===activePid;
+              const sub=t.id==="snowball"?"Debt tracker":(periods.find(p=>p.id===t.id)||{}).paycheckDate||"";
+              return (
+                <button key={t.id} onClick={()=>switchPeriod(t.id)} style={{flex:1,padding:"9px 3px 11px",background:on?"#0f1117":"transparent",border:"none",borderTop:"3px solid "+(on?c.accent:"transparent"),borderBottom:on?"1px solid #0f1117":"1px solid #1e2230",color:on?c.accent:"#6b7280",fontWeight:on?700:500,fontSize:11,cursor:"pointer",lineHeight:1.3,transition:"all 0.15s"}}>
+                  <div>{c.label}</div>
+                  <div style={{fontSize:9,opacity:0.65,fontWeight:400,marginTop:1}}>{sub}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      <div style={{maxWidth:680,margin:"0 auto",padding:"14px 16px 90px"}}>
+        {isSnowball ? (
+          <SnowballView debts={sortedDebts} totalBalance={totalBalance} totalMinimum={totalMinimum} totalCreditLine={totalCreditLine} totalAvailable={totalAvailable} utilizationPct={utilizationPct} editingDebt={editingDebt} setEditingDebt={setEditingDebt} onUpdateField={updateDebtField} onDelete={deleteDebt} showAddDebt={showAddDebt} setShowAddDebt={setShowAddDebt} newDebt={newDebt} setNewDebt={setNewDebt} onAddDebt={addDebt} />
+        ) : (
+          <>
+            <div style={{display:"flex",gap:10,marginBottom:12}}>
+              <div style={{flex:1}}>
+                <label style={lbl}>Paycheck</label>
+                <div style={{position:"relative"}}>
+                  <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",color:"#6b7280",fontSize:13}}>$</span>
+                  <input value={paycheck[activePid]} onChange={e=>setPC(e.target.value)} style={{...inp,paddingLeft:24}} type="number" step="0.01" placeholder="0.00" />
+                </div>
+              </div>
+              <div style={{flex:1}}>
+                <label style={lbl}>Pay Date Label</label>
+                <input value={period.paycheckDate} onChange={e=>{const next=periods.map(p=>p.id===activePid?{...p,paycheckDate:e.target.value}:p);setPeriods(next);persist(next,paycheck,activePid,debts,history);}} style={inp} placeholder="e.g. Jun 26" />
+              </div>
+            </div>
+
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}}>
+              <Card label="Total Bills"  value={fmt(totalBills)}           sub={pct+"% of check"}                      color="#ef4444" />
+              <Card label="Still Owed"   value={fmt(totalBills-paidAmt)}   sub={(activeBills.length-paidCount)+" unpaid"} color="#f59e0b" />
+              <Card label="Transfer Out" value={fmt(remaining)}            sub="to personal acct"                      color={remaining>=0?"#22c55e":"#ef4444"} />
+            </div>
+
+            <div style={{background:"#1a1f2e",borderRadius:8,padding:"9px 13px",marginBottom:12,border:"1px solid #1e2230"}}>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#8b92a5",marginBottom:5}}>
+                <span>Paid this period</span>
+                <span>{paidCount}/{activeBills.length} · {fmt(paidAmt)} of {fmt(totalBills)}</span>
+              </div>
+              <div style={{background:"#2a2f3e",borderRadius:4,height:6}}>
+                <div style={{width:(activeBills.length?paidCount/activeBills.length*100:0)+"%",height:"100%",background:"linear-gradient(90deg,"+col.accent+","+col.dark+")",borderRadius:4,transition:"width 0.3s"}} />
+              </div>
+            </div>
+
+            {alerts.length>0 && view==="tracker" && (
+              <div style={{background:"#3b1500",border:"1px solid #92400e",borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:12,color:"#fcd34d"}}>
+                ⚠️ <strong>Manual payment needed:</strong> {alerts.map(b=>b.name).join(" · ")}
+              </div>
+            )}
+
+            {view==="tracker" && (<>
+              <div style={{display:"flex",gap:6,marginBottom:10,alignItems:"center"}}>
+                <span style={{fontSize:11,color:"#6b7280",marginRight:2}}>Show:</span>
+                {[{key:"all",label:"All"},{key:"auto",label:"⚡ Auto"},{key:"manual",label:"✋ Manual"}].map(f=>(
+                  <button key={f.key} onClick={()=>setBillFilter(f.key)} style={{padding:"5px 11px",borderRadius:20,fontSize:12,fontWeight:600,cursor:"pointer",border:"none",background:billFilter===f.key?col.accent:"#1a1f2e",color:billFilter===f.key?"#fff":"#6b7280",outline:"2px solid "+(billFilter===f.key?col.accent:"#1e2230")}}>
+                    {f.label}
+                  </button>
+                ))}
+                <button onClick={()=>setShowHist(!showHist)} style={{fontSize:11,color:col.accent,background:"none",border:"none",cursor:"pointer",padding:0,marginLeft:"auto"}}>{showHist?"Hide history":"History"}</button>
+              </div>
+
+              {billFilter!=="all"&&(()=>{
+                const filtered=activeBills.filter(b=>billFilter==="auto"?b.autopay:!b.autopay);
+                const subTotal=filtered.reduce((s,b)=>s+(parseFloat(b.amount)||0),0);
+                const subPaid=filtered.filter(b=>b.paid).reduce((s,b)=>s+(parseFloat(b.amount)||0),0);
+                const subPaidCt=filtered.filter(b=>b.paid).length;
+                return (
+                  <div style={{background:billFilter==="auto"?"#1a1f2e":"#1f1a0e",border:"1px solid "+(billFilter==="auto"?"#6366f133":"#f59e0b33"),borderRadius:8,padding:"8px 13px",marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <span style={{fontSize:12,color:billFilter==="auto"?col.accent:"#f59e0b",fontWeight:600}}>{billFilter==="auto"?"⚡ Autopay":"✋ Manual"} — {subPaidCt}/{filtered.length} paid</span>
+                    <span style={{fontSize:13,fontWeight:800,color:"#f0f2f8"}}>{fmt(subPaid)} <span style={{color:"#8b92a5",fontWeight:400}}>of {fmt(subTotal)}</span></span>
+                  </div>
+                );
+              })()}
+
+              {showHist&&history.length>0&&(
+                <div style={{background:"#1a1f2e",borderRadius:8,border:"1px solid #1e2230",padding:"10px 12px",marginBottom:12}}>
+                  <div style={{fontSize:10,color:"#6b7280",textTransform:"uppercase",letterSpacing:1,marginBottom:7}}>Closed Periods</div>
+                  {[...history].reverse().map((h,i)=>(
+                    <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:i<history.length-1?"1px solid #1e2230":"none",fontSize:12}}>
+                      <span style={{color:"#9ca3af"}}>{h.period} <span style={{color:"#6b7280"}}>({h.date})</span></span>
+                      <span style={{color:"#22c55e",fontWeight:600}}>{fmt(h.remaining)} transferred</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                {activeBills.filter(b=>billFilter==="all"?true:billFilter==="auto"?b.autopay:!b.autopay).map(bill=>(
+                  <BillRow key={bill.id} bill={bill} onTogglePaid={()=>togglePaid(bill.id)} onAmt={v=>updateAmt(bill.id,v)} onDayChange={d=>updateDueDay(bill.id,d)} editingId={editingId} setEditingId={setEditingId} accent={col.accent} />
+                ))}
+              </div>
+
+              <div style={{marginTop:14,display:"flex",alignItems:"center",justifyContent:"center",gap:6,fontSize:12,color:"#22c55e"}}>
+                <span>✓</span>
+                <span>{lastSaved?`All changes saved at ${lastSaved}`:"Changes save automatically"}</span>
+              </div>
+
+              <SaveBakeButton periods={periods} paycheck={paycheck} activePid={activePid} debts={debts} history={history} lastSaved={lastSaved} />
+
+              <div style={{marginTop:10,background:"#1a1f2e",border:"1px solid #2a2f3e",borderRadius:10,padding:"12px 14px"}}>
+                <div style={{fontSize:12,color:"#9ca3af",marginBottom:4,fontWeight:600}}>Start Next Pay Cycle</div>
+                <div style={{fontSize:11,color:"#6b7280",marginBottom:10,lineHeight:1.5}}>Clears all paid checkmarks and advances the tab dates to your next paychecks. Your bill amounts and history are kept.</div>
+                <ResetButton onConfirm={closePeriod} label={col.label} accent={col.accent} dark={col.dark} />
+              </div>
+            </>)}
+
+            {view==="manage"&&(
+              <ManageBills bills={period.bills} onToggle={toggleOn} onAdd={addBill} newBill={newBill} setNewBill={setNewBill} showAdd={showAdd} setShowAdd={setShowAdd} accent={col.accent} periodLabel={col.label} onDelete={id=>mutatePeriod(period.bills.filter(b=>b.id!==id))} />
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SnowballView({debts,totalBalance,totalMinimum,totalCreditLine,totalAvailable,utilizationPct,editingDebt,setEditingDebt,onUpdateField,onDelete,showAddDebt,setShowAddDebt,newDebt,setNewDebt,onAddDebt}) {
+  const accent="#22c55e";
+  return (
+    <div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginBottom:12}}>
+        <Card label="Total Debt"    value={fmt(totalBalance)}    sub={utilizationPct+"% utilization"} color="#ef4444" />
+        <Card label="Total Min Due" value={fmt(totalMinimum)}    sub="per month"                      color="#f59e0b" />
+        <Card label="Total Credit"  value={fmt(totalCreditLine)} sub="combined limit"                 color="#6366f1" />
+        <Card label="Available"     value={fmt(totalAvailable)}  sub="remaining credit"               color={accent} />
+      </div>
+      <div style={{background:"#1a1f2e",borderRadius:8,padding:"9px 13px",marginBottom:14,border:"1px solid #1e2230"}}>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#8b92a5",marginBottom:5}}>
+          <span>Credit utilization</span>
+          <span style={{color:utilizationPct>70?"#ef4444":utilizationPct>30?"#f59e0b":accent,fontWeight:600}}>{utilizationPct}%</span>
+        </div>
+        <div style={{background:"#2a2f3e",borderRadius:4,height:8}}>
+          <div style={{width:Math.min(utilizationPct,100)+"%",height:"100%",borderRadius:4,transition:"width 0.3s",background:utilizationPct>70?"linear-gradient(90deg,#ef4444,#b91c1c)":utilizationPct>30?"linear-gradient(90deg,#f59e0b,#b45309)":"linear-gradient(90deg,#22c55e,#14532d)"}} />
+        </div>
+        <div style={{fontSize:10,color:"#6b7280",marginTop:5}}>{utilizationPct<=30?"✓ Good — under 30%":utilizationPct<=70?"⚠ Fair — aim for under 30%":"⚠ High — paying this down helps your credit score"}</div>
+      </div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+        <span style={{fontSize:11,color:"#8b92a5"}}>Snowball order (lowest balance first) · tap to edit</span>
+        <button onClick={()=>setShowAddDebt(!showAddDebt)} style={{background:accent,border:"none",color:"#fff",borderRadius:7,padding:"6px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>+ Add</button>
+      </div>
+      {showAddDebt&&(
+        <div style={{background:"#1a1f2e",border:"1px solid "+accent,borderRadius:10,padding:12,marginBottom:12}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+            <div style={{gridColumn:"1/-1"}}><label style={lbl}>Name</label><input value={newDebt.name} onChange={e=>setNewDebt({...newDebt,name:e.target.value})} style={inp} placeholder="Card or loan name" /></div>
+            <div><label style={lbl}>Min Payment</label><input type="number" step="0.01" value={newDebt.minimum} onChange={e=>setNewDebt({...newDebt,minimum:e.target.value})} style={inp} placeholder="0.00" /></div>
+            <div><label style={lbl}>Balance</label><input type="number" step="0.01" value={newDebt.balance} onChange={e=>setNewDebt({...newDebt,balance:e.target.value})} style={inp} placeholder="0.00" /></div>
+            <div><label style={lbl}>Credit Line</label><input type="number" step="0.01" value={newDebt.creditLine} onChange={e=>setNewDebt({...newDebt,creditLine:e.target.value})} style={inp} placeholder="0.00" /></div>
+            <div><label style={lbl}>As Of</label><input value={newDebt.asOf} onChange={e=>setNewDebt({...newDebt,asOf:e.target.value})} style={inp} placeholder="26-Jun" /></div>
+          </div>
+          <button onClick={onAddDebt} style={{background:accent,border:"none",color:"#fff",borderRadius:7,padding:"7px 15px",fontWeight:600,cursor:"pointer",fontSize:13}}>Add Debt</button>
+        </div>
+      )}
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {debts.map((debt,idx)=>{
+          const bal=parseFloat(debt.balance)||0,limit=parseFloat(debt.creditLine)||0,avail=limit-bal,utilPct=limit>0?Math.round((bal/limit)*100):0,isTarget=idx===0;
+          return (
+            <div key={debt.id} style={{background:isTarget?"#0f1f12":"#1a1f2e",border:"1px solid "+(isTarget?"#22c55e55":"#1e2230"),borderRadius:10,padding:"12px 14px 10px"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  {isTarget&&<span style={{fontSize:10,background:"#22c55e",color:"#000",borderRadius:4,padding:"2px 7px",fontWeight:800}}>TARGET</span>}
+                  <div>
+                    <div style={{fontWeight:700,fontSize:15,color:"#f0f2f8"}}>{debt.name}</div>
+                    {debt.asOf&&<div style={{fontSize:11,color:"#8b92a5",marginTop:1}}>As of {debt.asOf}</div>}
+                  </div>
+                </div>
+                <button onClick={()=>onDelete(debt.id)} style={{background:"none",border:"none",color:"#6b7280",cursor:"pointer",fontSize:20,padding:"0 4px"}}>×</button>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+                <DebtFieldBlock label="Min Due"      value={debt.minimum}    field="minimum"    debtId={debt.id} editing={editingDebt} setEditing={setEditingDebt} onUpdate={onUpdateField} color="#f59e0b" />
+                <DebtFieldBlock label="Balance"      value={debt.balance}    field="balance"    debtId={debt.id} editing={editingDebt} setEditing={setEditingDebt} onUpdate={onUpdateField} color="#ef4444" />
+                <DebtFieldBlock label="Credit Limit" value={debt.creditLine} field="creditLine" debtId={debt.id} editing={editingDebt} setEditing={setEditingDebt} onUpdate={onUpdateField} color="#6366f1" />
+                <div style={{background:"#0f1117",borderRadius:7,padding:"8px 10px"}}>
+                  <div style={{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:0.5,marginBottom:4}}>Available</div>
+                  <div style={{fontSize:16,fontWeight:800,color:avail<0?"#ef4444":"#22c55e"}}>{avail<0?"("+fmt(Math.abs(avail))+")":fmt(avail)}</div>
+                  <div style={{fontSize:10,color:"#6b7280",marginTop:2}}>auto-calculated</div>
+                </div>
+              </div>
+              <div style={{background:"#2a2f3e",borderRadius:4,height:6}}>
+                <div style={{width:Math.min(utilPct,100)+"%",height:"100%",borderRadius:4,transition:"width 0.3s",background:utilPct>70?"#ef4444":utilPct>30?"#f59e0b":"#22c55e"}} />
+              </div>
+              <div style={{fontSize:11,color:"#8b92a5",marginTop:4,textAlign:"right"}}>{utilPct}% utilized</div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{background:"#13161f",border:"1px solid #22c55e44",borderRadius:10,padding:"12px 14px",marginTop:10}}>
+        <div style={{fontSize:11,color:"#22c55e",fontWeight:800,textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>Totals</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+          {[{label:"Min Due",value:fmt(totalMinimum),color:"#f59e0b"},{label:"Total Debt",value:fmt(totalBalance),color:"#ef4444"},{label:"Credit Limit",value:fmt(totalCreditLine),color:"#6366f1"},{label:"Available",value:fmt(totalAvailable),color:"#22c55e"}].map(t=>(
+            <div key={t.label} style={{background:"#1a1f2e",borderRadius:7,padding:"8px 10px"}}>
+              <div style={{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:0.5,marginBottom:3}}>{t.label}</div>
+              <div style={{fontSize:15,fontWeight:800,color:t.color}}>{t.value}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DebtFieldBlock({label,value,field,debtId,editing,setEditing,onUpdate,color}) {
+  const isEditing=editing&&editing.id===debtId&&editing.field===field, num=parseFloat(value)||0;
+  return (
+    <div style={{background:"#0f1117",borderRadius:7,padding:"8px 10px",cursor:"pointer"}} onClick={()=>!isEditing&&setEditing({id:debtId,field})}>
+      <div style={{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:0.5,marginBottom:4}}>{label}</div>
+      {isEditing
+        ? <input autoFocus type="number" step="0.01" value={value} onChange={e=>onUpdate(debtId,field,e.target.value)} onBlur={()=>setEditing(null)} onKeyDown={e=>{if(e.key==="Enter")setEditing(null);}} onClick={e=>e.stopPropagation()} style={{width:"100%",background:"transparent",border:"none",borderBottom:"2px solid "+color,color,padding:"2px 0",fontSize:16,fontWeight:800,outline:"none",boxSizing:"border-box"}} />
+        : <div style={{fontSize:16,fontWeight:800,color}}>{fmt(num)}</div>
+      }
+    </div>
+  );
+}
+
+function BillRow({bill,onTogglePaid,onAmt,onDayChange,editingId,setEditingId,accent}) {
+  const [showDayPicker,setShowDayPicker]=useState(false);
+  const editing=editingId===bill.id, amt=parseFloat(bill.amount)||0;
+  const days=Array.from({length:31},(_,i)=>i+1);
+  return (
+    <div style={{background:bill.paid?"#0c1a10":"#1a1f2e",border:"1px solid "+(bill.paid?"#14532d":"#1e2230"),borderRadius:9,padding:"9px 11px",display:"flex",alignItems:"center",gap:8,opacity:bill.paid?0.6:1,position:"relative"}}>
+      <button onClick={onTogglePaid} style={{width:30,height:30,borderRadius:5,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",background:bill.paid?"#22c55e":"#2a2f3e",border:"2px solid "+(bill.paid?"#16a34a":"#3f4659"),color:"#fff",fontSize:14,cursor:"pointer"}}>
+        {bill.paid?"✓":""}
+      </button>
+      <div style={{position:"relative",flexShrink:0}}>
+        <button onClick={()=>setShowDayPicker(!showDayPicker)} style={{width:30,height:30,textAlign:"center",fontSize:11,background:showDayPicker?accent:"#2a2f3e",borderRadius:5,padding:0,color:showDayPicker?"#fff":"#9ca3af",border:"1px solid "+(showDayPicker?accent:"#3f4659"),cursor:"pointer",fontWeight:700,lineHeight:1}}>
+          <div style={{fontSize:9,opacity:0.7,marginBottom:1}}>DUE</div>
+          <div>{bill.dueDay}</div>
+        </button>
+        {showDayPicker&&(
+          <div style={{position:"absolute",top:36,left:0,zIndex:100,background:"#1a1f2e",border:"1px solid "+accent,borderRadius:10,padding:10,width:200,boxShadow:"0 8px 32px rgba(0,0,0,0.6)"}}>
+            <div style={{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:1,marginBottom:8,fontWeight:600}}>Select Due Day</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3}}>
+              {days.map(d=>(
+                <button key={d} onClick={()=>{onDayChange(d);setShowDayPicker(false);}} style={{padding:"5px 2px",borderRadius:5,border:"none",cursor:"pointer",fontSize:12,fontWeight:d===bill.dueDay?800:400,background:d===bill.dueDay?accent:"#2a2f3e",color:d===bill.dueDay?"#fff":"#9ca3af"}}>{d}</button>
+              ))}
+            </div>
+            <button onClick={()=>setShowDayPicker(false)} style={{marginTop:8,width:"100%",background:"none",border:"none",color:"#8b92a5",fontSize:11,cursor:"pointer"}}>Cancel</button>
+          </div>
+        )}
+      </div>
+      <div style={{flex:1,minWidth:0,cursor:"pointer"}} onClick={()=>{if(!editing){setShowDayPicker(false);setEditingId(bill.id);}}}>
+        <div style={{fontWeight:600,fontSize:13,color:bill.paid?"#6b7280":"#e8eaf0",textDecoration:bill.paid?"line-through":"none",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{bill.name}</div>
+        <div style={{display:"flex",gap:5,marginTop:2}}>
+          {bill.autopay&&<span style={{fontSize:10,color:accent}}>● Auto</span>}
+          {bill.lateFee&&!bill.autopay&&<span style={{fontSize:10,color:"#f59e0b"}}>⚠ Late Fee</span>}
+        </div>
+      </div>
+      {editing
+        ? <input autoFocus type="number" step="0.01" value={bill.amount} onChange={e=>onAmt(e.target.value)} onBlur={()=>setEditingId(null)} onKeyDown={e=>{if(e.key==="Enter")setEditingId(null);}} style={{width:100,background:"#0f1117",border:"1px solid "+accent,borderRadius:6,color:"#fff",padding:"6px 8px",fontSize:14,textAlign:"right"}} />
+        : <button onClick={()=>{setShowDayPicker(false);setEditingId(bill.id);}} style={{background:"#0f1117",border:"1px solid #2a2f3e",cursor:"pointer",flexShrink:0,color:amt>0?"#f0f2f8":"#6b7280",fontSize:13,fontWeight:700,fontFamily:"inherit",padding:"5px 9px",borderRadius:6,minWidth:80,textAlign:"right"}}>{amt>0?fmt(amt):"$ —"}</button>
+      }
+    </div>
+  );
+}
+
+
+function SaveBakeButton({ periods, paycheck, activePid, debts, history, lastSaved }) {
+  const [status, setStatus] = React.useState("idle");
+
+  const handleSave = () => {
+    setStatus("saving");
+    try {
+      const data = JSON.stringify({ periods, paycheck, activePid, debts, history: history || [] });
+      // Save to localStorage
+      localStorage.setItem("btrk-v6", data);
+
+      // Also bake into a new HTML file for download
+      const escaped = data.replace(/\\/g, '\\\\').replace(/`/g, '\\`');
+      const html = document.documentElement.outerHTML;
+      const updated = html.replace(
+        /\/\/ BAKED_DATA_START[\s\S]*?\/\/ BAKED_DATA_END/,
+        '// BAKED_DATA_START\nconst BAKED_DATA = `' + escaped + '`;\n// BAKED_DATA_END'
+      );
+      const blob = new Blob([updated], { type: "text/html" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "BeardedDad-Bills-Tracker.html";
+      a.click();
+      URL.revokeObjectURL(a.href);
+      setStatus("saved");
+    } catch(e) {
+      console.error(e);
+      setStatus("error");
+    }
+    setTimeout(() => setStatus("idle"), 4000);
+  };
+
+  const label = status === "saving" ? "Saving…"
+    : status === "saved"  ? "✓ Saved! Replace your old file with the download"
+    : status === "error"  ? "⚠ Save failed — try again"
+    : "💾 Save & Bake — Lock In Your Changes";
+
+  const bg = status === "saved"  ? "linear-gradient(135deg,#22c55e,#14532d)"
+    : status === "error"  ? "linear-gradient(135deg,#ef4444,#7f1d1d)"
+    : status === "saving" ? "#2a2f3e"
+    : "linear-gradient(135deg,#f59e0b,#78350f)";
+
+  return (
+    <div style={{marginTop:14}}>
+      <button onClick={handleSave} disabled={status==="saving"} style={{width:"100%",padding:"13px",background:bg,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:14,cursor:status==="saving"?"default":"pointer",letterSpacing:0.3,transition:"all 0.2s"}}>
+        {label}
+      </button>
+      <div style={{marginTop:6,fontSize:11,color:"#6b7280",textAlign:"center",lineHeight:1.5}}>
+        Downloads a new copy with your data baked in. Replace the old file on GitHub to sync all devices.
+      </div>
+      {lastSaved && status==="idle" && (
+        <div style={{marginTop:4,fontSize:11,color:"#4b5563",textAlign:"center"}}>Last saved at {lastSaved}</div>
+      )}
+    </div>
+  );
+}
+
+function ResetButton({onConfirm,label,accent,dark}) {
+  const [confirming,setConfirming]=useState(false);
+  if (confirming) return (
+    <div style={{display:"flex",gap:8}}>
+      <button onClick={()=>{onConfirm();setConfirming(false);}} style={{flex:1,padding:"11px",background:"linear-gradient(135deg,"+accent+","+dark+")",color:"#fff",border:"none",borderRadius:8,fontWeight:700,fontSize:13,cursor:"pointer"}}>✓ Yes, Start Next Cycle</button>
+      <button onClick={()=>setConfirming(false)} style={{padding:"11px 16px",background:"#2a2f3e",color:"#9ca3af",border:"none",borderRadius:8,fontWeight:600,fontSize:13,cursor:"pointer"}}>Cancel</button>
+    </div>
+  );
+  return <button onClick={()=>setConfirming(true)} style={{width:"100%",padding:"11px",background:"transparent",color:accent,border:"1px solid "+accent,borderRadius:8,fontWeight:700,fontSize:13,cursor:"pointer"}}>Reset {label} for Next Cycle →</button>;
+}
+
+function ManageBills({bills,onToggle,onDelete,onAdd,newBill,setNewBill,showAdd,setShowAdd,accent,periodLabel}) {
+  const [confirmDel,setConfirmDel]=useState(null);
+  return (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <span style={{fontSize:12,color:"#6b7280"}}>Bills for {periodLabel}</span>
+        <button onClick={()=>setShowAdd(!showAdd)} style={{background:accent,border:"none",color:"#fff",borderRadius:7,padding:"6px 13px",fontSize:12,fontWeight:600,cursor:"pointer"}}>+ Add Bill</button>
+      </div>
+      {showAdd&&(
+        <div style={{background:"#1a1f2e",border:"1px solid "+accent,borderRadius:10,padding:12,marginBottom:12}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 68px 95px",gap:8,marginBottom:8}}>
+            <div><label style={lbl}>Name</label><input value={newBill.name} onChange={e=>setNewBill({...newBill,name:e.target.value})} style={inp} placeholder="Bill name" /></div>
+            <div><label style={lbl}>Due Day</label><input type="number" value={newBill.dueDay} onChange={e=>setNewBill({...newBill,dueDay:e.target.value})} style={inp} placeholder="1" /></div>
+            <div><label style={lbl}>Amount</label><input type="number" step="0.01" value={newBill.amount} onChange={e=>setNewBill({...newBill,amount:e.target.value})} style={inp} placeholder="0.00" /></div>
+          </div>
+          <div style={{display:"flex",gap:14,marginBottom:10,fontSize:13}}>
+            <label style={{display:"flex",gap:6,alignItems:"center",cursor:"pointer",color:"#9ca3af"}}><input type="checkbox" checked={newBill.autopay} onChange={e=>setNewBill({...newBill,autopay:e.target.checked})} /> Autopay</label>
+            <label style={{display:"flex",gap:6,alignItems:"center",cursor:"pointer",color:"#9ca3af"}}><input type="checkbox" checked={newBill.lateFee} onChange={e=>setNewBill({...newBill,lateFee:e.target.checked})} /> Has Late Fee</label>
+          </div>
+          <button onClick={onAdd} style={{background:"#22c55e",border:"none",color:"#fff",borderRadius:7,padding:"7px 15px",fontWeight:600,cursor:"pointer",fontSize:13}}>Add Bill</button>
+        </div>
+      )}
+      <div style={{display:"flex",flexDirection:"column",gap:5}}>
+        {[...bills].sort((a,b)=>a.dueDay-b.dueDay).map(bill=>(
+          <div key={bill.id} style={{background:bill.active?"#1a1f2e":"#111318",border:"1px solid "+(bill.active?"#1e2230":"#16181f"),borderRadius:9,padding:"8px 11px",display:"flex",alignItems:"center",gap:8,opacity:bill.active?1:0.35}}>
+            <button onClick={()=>onToggle(bill.id)} style={{width:22,height:22,borderRadius:5,flexShrink:0,background:bill.active?"#22c55e":"#2a2f3e",border:"2px solid "+(bill.active?"#16a34a":"#3f4659"),cursor:"pointer",color:"#fff",fontSize:12}}>{bill.active?"✓":""}</button>
+            <div style={{width:22,textAlign:"center",background:"#2a2f3e",borderRadius:3,padding:"2px 3px",fontSize:10,color:"#6b7280",flexShrink:0}}>{bill.dueDay}</div>
+            <div style={{flex:1,fontSize:13,fontWeight:500}}>{bill.name}</div>
+            <div style={{display:"flex",gap:5,fontSize:10}}>
+              {bill.autopay&&<span style={{color:accent}}>Auto</span>}
+              {bill.lateFee&&<span style={{color:"#f59e0b"}}>Late Fee</span>}
+            </div>
+            <div style={{fontWeight:700,fontSize:12,color:"#8b92a5",minWidth:58,textAlign:"right"}}>{parseFloat(bill.amount)>0?fmt(parseFloat(bill.amount)):"—"}</div>
+            {confirmDel===bill.id
+              ? <div style={{display:"flex",gap:4}}>
+                  <button onClick={()=>{onDelete(bill.id);setConfirmDel(null);}} style={{background:"#ef4444",border:"none",color:"#fff",borderRadius:5,padding:"3px 8px",fontSize:11,cursor:"pointer"}}>Del</button>
+                  <button onClick={()=>setConfirmDel(null)} style={{background:"#2a2f3e",border:"none",color:"#9ca3af",borderRadius:5,padding:"3px 8px",fontSize:11,cursor:"pointer"}}>×</button>
+                </div>
+              : <button onClick={()=>setConfirmDel(bill.id)} style={{background:"none",border:"none",color:"#6b7280",cursor:"pointer",fontSize:16,padding:"2px 4px"}}>×</button>
+            }
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Card({label,value,sub,color}) {
+  return (
+    <div style={{background:"#1a1f2e",border:"1px solid #1e2230",borderRadius:10,padding:"10px 11px 9px",borderTop:"3px solid "+color}}>
+      <div style={{fontSize:9,color:"#9ca3af",textTransform:"uppercase",letterSpacing:1,marginBottom:3}}>{label}</div>
+      <div style={{fontSize:15,fontWeight:800,color,lineHeight:1}}>{value}</div>
+      <div style={{fontSize:10,color:"#6b7280",marginTop:3}}>{sub}</div>
+    </div>
+  );
+}
+
+const navBtn=(active,accent)=>({background:active?accent:"transparent",color:active?"#fff":"#9ca3af",border:"1px solid "+(active?accent:"#2a2f3e"),borderRadius:7,padding:"6px 12px",fontSize:12,fontWeight:600,cursor:"pointer"});
+const lbl={display:"block",fontSize:10,color:"#9ca3af",marginBottom:3,textTransform:"uppercase",letterSpacing:0.5};
+const inp={width:"100%",background:"#0f1117",border:"1px solid #1e2230",borderRadius:7,color:"#f0f2f8",padding:"8px 10px",fontSize:13,boxSizing:"border-box",outline:"none"};
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<BillsTracker />);
+</script>
+</body>
+</html>
