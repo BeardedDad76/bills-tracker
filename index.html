@@ -6,6 +6,9 @@
 <title>Bills Tracker — BeardedDad</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#0f1117;font-family:'Inter','Segoe UI',sans-serif;color:#e8eaf0;min-height:100vh}
@@ -21,11 +24,39 @@ button{font-family:inherit}
 <body>
 <div id="root"><div style="color:#e8eaf0;display:flex;align-items:center;justify-content:center;height:100vh;font-size:16px">Loading…</div></div>
 <script>
-// ── DATA ─────────────────────────────────────────────────────────────────────
-// BAKED_DATA_START
-const BAKED_DATA = null;
-// BAKED_DATA_END
+// ── FIREBASE SETUP ────────────────────────────────────────────────────────────
+const firebaseConfig = {
+  apiKey: "AIzaSyBHBBUMOJ9_ZMaUuCIIkN2sFlYlhOQ_C8I",
+  authDomain: "beardeddad-bills-tracker.firebaseapp.com",
+  databaseURL: "https://beardeddad-bills-tracker-default-rtdb.firebaseio.com",
+  projectId: "beardeddad-bills-tracker",
+  storageBucket: "beardeddad-bills-tracker.firebasestorage.app",
+  messagingSenderId: "496861678295",
+  appId: "1:496861678295:web:980d50aea9941fe8993e92",
+  measurementId: "G-NR28NR6JD2"
+};
 
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+// Save to Firebase
+async function fbSave(data) {
+  try {
+    await db.ref("bills-tracker").set(data);
+    return true;
+  } catch(e) { console.error("Firebase save error:", e); return false; }
+}
+
+// Load from Firebase
+async function fbLoad() {
+  try {
+    const snap = await db.ref("bills-tracker").get();
+    if (snap.exists()) return snap.val();
+    return null;
+  } catch(e) { console.error("Firebase load error:", e); return null; }
+}
+
+// ── DATA ─────────────────────────────────────────────────────────────────────
 const {useState,useEffect,useCallback,createElement:h,Fragment} = React;
 const fmt = n => n.toLocaleString("en-US",{style:"currency",currency:"USD"});
 
@@ -66,9 +97,7 @@ const P2=[
   {id:201,name:"PennMAC",dueDay:1,amount:"2601.35",autopay:false,lateFee:true,paid:false,active:true},
   {id:202,name:"Beyond Finance",dueDay:1,amount:"201.34",autopay:true,lateFee:false,paid:false,active:true}
 ];
-const P3=[
-  {id:301,name:"Beyond Finance",dueDay:1,amount:"201.34",autopay:true,lateFee:false,paid:false,active:true}
-];
+const P3=[{id:301,name:"Beyond Finance",dueDay:1,amount:"201.34",autopay:true,lateFee:false,paid:false,active:true}];
 const DD=[
   {id:"d1",name:"Discover",minimum:0,balance:0,creditLine:300,asOf:"26-May"},
   {id:"d2",name:"Credit One (Sil)",minimum:10.62,balance:112.81,creditLine:500,asOf:"26-May"},
@@ -78,24 +107,11 @@ const DD=[
   {id:"d6",name:"Concora Credit",minimum:97,balance:1939.69,creditLine:2000,asOf:"26-May"}
 ];
 
-function buildSched(n=104){
-  const s=new Date("2026-06-26"),r=[];
-  for(let i=0;i<n;i++){const d=new Date(s);d.setDate(s.getDate()+i*14);r.push(d);}
-  return r;
-}
+function buildSched(n=104){const s=new Date("2026-06-26"),r=[];for(let i=0;i<n;i++){const d=new Date(s);d.setDate(s.getDate()+i*14);r.push(d);}return r;}
 const SCHED=buildSched();
 function fpd(d){return d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});}
-function nextBonus(from){
-  const bm={};
-  SCHED.forEach((d,i)=>{if(i<from)return;const k=d.getFullYear()+"-"+d.getMonth();if(!bm[k])bm[k]=[];bm[k].push(d);});
-  for(const ds of Object.values(bm)){if(ds.length===3)return ds[2];}
-  return null;
-}
-function initDates(){
-  const t=new Date();t.setHours(0,0,0,0);let idx=0;
-  for(let i=0;i<SCHED.length;i++){const d=new Date(SCHED[i]);d.setHours(0,0,0,0);if(d<=t)idx=i;else break;}
-  return{c1:SCHED[idx],c2:SCHED[idx+1],c3:nextBonus(idx)};
-}
+function nextBonus(from){const bm={};SCHED.forEach((d,i)=>{if(i<from)return;const k=d.getFullYear()+"-"+d.getMonth();if(!bm[k])bm[k]=[];bm[k].push(d);});for(const ds of Object.values(bm)){if(ds.length===3)return ds[2];}return null;}
+function initDates(){const t=new Date();t.setHours(0,0,0,0);let idx=0;for(let i=0;i<SCHED.length;i++){const d=new Date(SCHED[i]);d.setHours(0,0,0,0);if(d<=t)idx=i;else break;}return{c1:SCHED[idx],c2:SCHED[idx+1],c3:nextBonus(idx)};}
 const ID=initDates();
 const DP=[
   {id:"period1",paycheckDate:fpd(ID.c1),bills:P1},
@@ -104,33 +120,6 @@ const DP=[
 ];
 const DPC={period1:"3143.86",period2:"3143.86",period3:"3143.86"};
 
-// Storage: baked data first, then localStorage
-const storage={
-  get:async(k)=>{
-    if(k==="btrk-v6"&&BAKED_DATA)return{value:BAKED_DATA};
-    try{const v=localStorage.getItem(k);return v?{value:v}:null;}catch{return null;}
-  },
-  set:async(k,v)=>{try{localStorage.setItem(k,v);return true;}catch{return null;}}
-};
-
-// Save & Bake function
-function saveAndBake(dataJson){
-  try{
-    const esc=dataJson.replace(/\\/g,'\\\\').replace(/`/g,'\\`');
-    const html=document.documentElement.outerHTML;
-    const updated=html.replace(/\/\/ BAKED_DATA_START[\s\S]*?\/\/ BAKED_DATA_END/,
-      '// BAKED_DATA_START\nconst BAKED_DATA = `'+esc+'`;\n// BAKED_DATA_END');
-    const blob=new Blob([updated],{type:"text/html"});
-    const a=document.createElement("a");
-    a.href=URL.createObjectURL(blob);
-    a.download="BeardedDad-Bills-Tracker.html";
-    a.click();
-    URL.revokeObjectURL(a.href);
-    return true;
-  }catch(e){console.error(e);return false;}
-}
-
-// ── STYLES ───────────────────────────────────────────────────────────────────
 const S={
   inp:{width:"100%",background:"#0f1117",border:"1px solid #1e2230",borderRadius:7,color:"#f0f2f8",padding:"8px 10px",fontSize:13,boxSizing:"border-box",outline:"none"},
   lbl:{display:"block",fontSize:10,color:"#9ca3af",marginBottom:3,textTransform:"uppercase",letterSpacing:0.5},
@@ -145,16 +134,21 @@ function Card({label,value,sub,color}){
   );
 }
 
+function SyncButton({onSync,status}){
+  const colors={idle:"#4b5563",syncing:"#f59e0b",ok:"#22c55e",error:"#ef4444"};
+  const labels={idle:"☁ Sync",syncing:"⟳ Syncing…",ok:"✓ Synced",error:"! Retry"};
+  return h("button",{onClick:onSync,title:"Pull latest from all devices",style:{background:"transparent",border:"1px solid #2a2f3e",borderRadius:7,padding:"5px 10px",cursor:"pointer",display:"flex",alignItems:"center",gap:5,fontSize:12,color:colors[status],fontWeight:600}},labels[status]);
+}
+
 function BillRow({bill,onTogglePaid,onAmt,onDayChange,editingId,setEditingId,accent}){
   const [showDP,setShowDP]=useState(false);
-  const editing=editingId===bill.id, amt=parseFloat(bill.amount)||0;
+  const editing=editingId===bill.id,amt=parseFloat(bill.amount)||0;
   const days=Array.from({length:31},(_,i)=>i+1);
   return h("div",{style:{background:bill.paid?"#0c1a10":"#1a1f2e",border:"1px solid "+(bill.paid?"#14532d":"#1e2230"),borderRadius:9,padding:"9px 11px",display:"flex",alignItems:"center",gap:8,opacity:bill.paid?0.6:1,position:"relative"}},
     h("button",{onClick:onTogglePaid,style:{width:30,height:30,borderRadius:5,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",background:bill.paid?"#22c55e":"#2a2f3e",border:"2px solid "+(bill.paid?"#16a34a":"#3f4659"),color:"#fff",fontSize:14,cursor:"pointer"}},bill.paid?"✓":""),
     h("div",{style:{position:"relative",flexShrink:0}},
       h("button",{onClick:()=>setShowDP(!showDP),style:{width:30,height:30,textAlign:"center",fontSize:11,background:showDP?accent:"#2a2f3e",borderRadius:5,padding:0,color:showDP?"#fff":"#9ca3af",border:"1px solid "+(showDP?accent:"#3f4659"),cursor:"pointer",fontWeight:700,lineHeight:1}},
-        h("div",{style:{fontSize:9,opacity:0.7,marginBottom:1}},"DUE"),
-        h("div",null,bill.dueDay)
+        h("div",{style:{fontSize:9,opacity:0.7,marginBottom:1}},"DUE"),h("div",null,bill.dueDay)
       ),
       showDP&&h("div",{style:{position:"absolute",top:36,left:0,zIndex:100,background:"#1a1f2e",border:"1px solid "+accent,borderRadius:10,padding:10,width:200,boxShadow:"0 8px 32px rgba(0,0,0,0.6)"}},
         h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:1,marginBottom:8,fontWeight:600}},"Select Due Day"),
@@ -177,27 +171,6 @@ function BillRow({bill,onTogglePaid,onAmt,onDayChange,editingId,setEditingId,acc
   );
 }
 
-function SaveBakeButton({periods,paycheck,activePid,debts,history,lastSaved}){
-  const [status,setStatus]=useState("idle");
-  const handle=()=>{
-    setStatus("saving");
-    try{
-      const data=JSON.stringify({periods,paycheck,activePid,debts,history:history||[]});
-      localStorage.setItem("btrk-v6",data);
-      saveAndBake(data);
-      setStatus("saved");
-    }catch(e){console.error(e);setStatus("error");}
-    setTimeout(()=>setStatus("idle"),4000);
-  };
-  const label=status==="saving"?"Saving…":status==="saved"?"✓ Saved! Replace your file on GitHub":status==="error"?"⚠ Save failed":"💾 Save & Bake — Lock In Your Changes";
-  const bg=status==="saved"?"linear-gradient(135deg,#22c55e,#14532d)":status==="error"?"linear-gradient(135deg,#ef4444,#7f1d1d)":status==="saving"?"#2a2f3e":"linear-gradient(135deg,#f59e0b,#78350f)";
-  return h("div",{style:{marginTop:14}},
-    h("button",{onClick:handle,disabled:status==="saving",style:{width:"100%",padding:"13px",background:bg,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:14,cursor:status==="saving"?"default":"pointer",transition:"all 0.2s"}},label),
-    h("div",{style:{marginTop:6,fontSize:11,color:"#6b7280",textAlign:"center",lineHeight:1.5}},"Downloads updated file. Upload to GitHub to sync all devices."),
-    lastSaved&&status==="idle"&&h("div",{style:{marginTop:4,fontSize:11,color:"#4b5563",textAlign:"center"}},"Last saved at "+lastSaved)
-  );
-}
-
 function ResetButton({onConfirm,label,accent,dark}){
   const [conf,setConf]=useState(false);
   if(conf)return h("div",{style:{display:"flex",gap:8}},
@@ -208,7 +181,7 @@ function ResetButton({onConfirm,label,accent,dark}){
 }
 
 function DebtBlock({label,value,field,debtId,editing,setEditing,onUpdate,color}){
-  const isEd=editing&&editing.id===debtId&&editing.field===field, num=parseFloat(value)||0;
+  const isEd=editing&&editing.id===debtId&&editing.field===field,num=parseFloat(value)||0;
   return h("div",{style:{background:"#0f1117",borderRadius:7,padding:"8px 10px",cursor:"pointer"},onClick:()=>!isEd&&setEditing({id:debtId,field})},
     h("div",{style:{fontSize:10,color:"#8b92a5",textTransform:"uppercase",letterSpacing:0.5,marginBottom:4}},label),
     isEd
@@ -350,34 +323,72 @@ function App(){
   const [history,setHistory]=useState([]);
   const [showHist,setShowHist]=useState(false);
   const [lastSaved,setLastSaved]=useState(null);
+  const [syncStatus,setSyncStatus]=useState("idle");
   const [debts,setDebts]=useState(DD);
   const [editingDebt,setEditingDebt]=useState(null);
   const [showAddDebt,setShowAddDebt]=useState(false);
   const [newDebt,setNewDebt]=useState({name:"",minimum:"",balance:"",creditLine:"",asOf:""});
   const [ready,setReady]=useState(false);
 
+  // Load from Firebase on startup
   useEffect(()=>{
     (async()=>{
-      try{
-        const r=await storage.get("btrk-v6");
-        if(r){
-          const d=JSON.parse(r.value);
+      try {
+        // Load local first for instant display
+        const local = localStorage.getItem("btrk-v6");
+        if(local){
+          const d=JSON.parse(local);
           if(d.periods)setPeriods(d.periods);
           if(d.paycheck)setPaycheck(d.paycheck);
           if(d.activePid)setActivePid(d.activePid);
           if(d.debts)setDebts(d.debts);
           if(d.history)setHistory(d.history||[]);
         }
-      }catch(e){console.error("Load error",e);}
-      setReady(true);
+        setReady(true);
+        // Then load from Firebase (newest data)
+        const fbData = await fbLoad();
+        if(fbData){
+          if(fbData.periods)setPeriods(fbData.periods);
+          if(fbData.paycheck)setPaycheck(fbData.paycheck);
+          if(fbData.activePid)setActivePid(fbData.activePid);
+          if(fbData.debts)setDebts(fbData.debts);
+          if(fbData.history)setHistory(fbData.history||[]);
+          localStorage.setItem("btrk-v6", JSON.stringify(fbData));
+          setSyncStatus("ok");
+          setTimeout(()=>setSyncStatus("idle"),3000);
+        }
+      } catch(e){ console.error(e); setReady(true); }
     })();
   },[]);
 
+  // Save to both localStorage and Firebase
   const persist=useCallback((p,pc,ap,db,hist)=>{
-    const payload=JSON.stringify({periods:p,paycheck:pc,activePid:ap,debts:db,history:hist||[]});
-    storage.set("btrk-v6",payload).catch(()=>{});
+    const data={periods:p,paycheck:pc,activePid:ap,debts:db,history:hist||[],savedAt:new Date().toISOString()};
+    // Local save immediately
+    try{localStorage.setItem("btrk-v6",JSON.stringify(data));}catch(e){}
     setLastSaved(new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}));
+    // Firebase save in background
+    setSyncStatus("syncing");
+    fbSave(data).then(ok=>{
+      setSyncStatus(ok?"ok":"error");
+      setTimeout(()=>setSyncStatus("idle"),3000);
+    });
   },[]);
+
+  // Manual pull from Firebase
+  const handleSync=async()=>{
+    setSyncStatus("syncing");
+    const fbData=await fbLoad();
+    if(fbData){
+      if(fbData.periods)setPeriods(fbData.periods);
+      if(fbData.paycheck)setPaycheck(fbData.paycheck);
+      if(fbData.debts)setDebts(fbData.debts);
+      if(fbData.history)setHistory(fbData.history||[]);
+      localStorage.setItem("btrk-v6",JSON.stringify(fbData));
+      setSyncStatus("ok");
+    } else { setSyncStatus("error"); }
+    setTimeout(()=>setSyncStatus("idle"),3000);
+  };
 
   const isSB=activePid==="snowball";
   const period=periods.find(p=>p.id===activePid)||periods[0];
@@ -433,7 +444,6 @@ function App(){
   const TABS=[...DP.map(p=>({id:p.id})),{id:"snowball"}];
 
   return h("div",{style:{fontFamily:"'Inter','Segoe UI',sans-serif",background:"#0f1117",minHeight:"100vh",color:"#e8eaf0"}},
-    // Header
     h("div",{style:{background:"#13161f",borderBottom:"1px solid #1e2230",padding:"14px 16px 0",position:"sticky",top:0,zIndex:50}},
       h("div",{style:{maxWidth:680,margin:"0 auto"}},
         h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}},
@@ -441,9 +451,12 @@ function App(){
             h("div",{style:{fontSize:10,letterSpacing:2,color:"#6b7280",textTransform:"uppercase"}},"Pay Period Manager"),
             h("div",{style:{fontSize:20,fontWeight:800,color:"#f0f2f8"}},"Bills Tracker")
           ),
-          !isSB&&h("div",{style:{display:"flex",gap:6}},
-            h("button",{onClick:()=>setView("tracker"),style:S.navBtn(view==="tracker",col.accent)},"Tracker"),
-            h("button",{onClick:()=>setView("manage"),style:S.navBtn(view==="manage",col.accent)},"Manage")
+          h("div",{style:{display:"flex",gap:6,alignItems:"center"}},
+            !isSB&&h(Fragment,null,
+              h("button",{onClick:()=>setView("tracker"),style:S.navBtn(view==="tracker",col.accent)},"Tracker"),
+              h("button",{onClick:()=>setView("manage"),style:S.navBtn(view==="manage",col.accent)},"Manage")
+            ),
+            h(SyncButton,{onSync:handleSync,status:syncStatus})
           )
         ),
         h("div",{style:{display:"flex"}},
@@ -458,94 +471,85 @@ function App(){
         )
       )
     ),
-    // Body
     h("div",{style:{maxWidth:680,margin:"0 auto",padding:"14px 16px 90px"}},
+      // Sync status bar
+      syncStatus!=="idle"&&h("div",{style:{background:syncStatus==="ok"?"#0d1f0d":syncStatus==="error"?"#1f0d0d":"#1a1a0d",border:"1px solid "+(syncStatus==="ok"?"#22c55e":syncStatus==="error"?"#ef4444":"#f59e0b"),borderRadius:8,padding:"8px 13px",marginBottom:12,fontSize:12,color:syncStatus==="ok"?"#22c55e":syncStatus==="error"?"#ef4444":"#f59e0b",display:"flex",alignItems:"center",gap:8}},
+        syncStatus==="syncing"?"⟳ Saving to cloud…":syncStatus==="ok"?"✓ Saved! All your devices are now in sync.":"⚠ Could not reach cloud — changes saved locally."
+      ),
       isSB
         ?h(SnowballView,{debts:sdebts,totBal,totMin,totCL,totAv,utilPct,editingDebt,setEditingDebt,onUpdate:updDF,onDelete:delDebt,showAdd:showAddDebt,setShowAdd:setShowAddDebt,newDebt,setNewDebt,onAddDebt:addDebt})
         :h(Fragment,null,
-            // Paycheck inputs
-            h("div",{style:{display:"flex",gap:10,marginBottom:12}},
-              h("div",{style:{flex:1}},
-                h("label",{style:S.lbl},"Paycheck"),
-                h("div",{style:{position:"relative"}},
-                  h("span",{style:{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",color:"#6b7280",fontSize:13}},"$"),
-                  h("input",{value:paycheck[activePid],onChange:e=>setPC(e.target.value),style:{...S.inp,paddingLeft:24},type:"number",step:"0.01",placeholder:"0.00"})
-                )
-              ),
-              h("div",{style:{flex:1}},
-                h("label",{style:S.lbl},"Pay Date Label"),
-                h("input",{value:period.paycheckDate,onChange:e=>{const next=periods.map(p=>p.id===activePid?{...p,paycheckDate:e.target.value}:p);setPeriods(next);persist(next,paycheck,activePid,debts,history);},style:S.inp,placeholder:"e.g. Jun 26"})
+          h("div",{style:{display:"flex",gap:10,marginBottom:12}},
+            h("div",{style:{flex:1}},
+              h("label",{style:S.lbl},"Paycheck"),
+              h("div",{style:{position:"relative"}},
+                h("span",{style:{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",color:"#6b7280",fontSize:13}},"$"),
+                h("input",{value:paycheck[activePid],onChange:e=>setPC(e.target.value),style:{...S.inp,paddingLeft:24},type:"number",step:"0.01",placeholder:"0.00"})
               )
             ),
-            // Summary cards
-            h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}},
-              h(Card,{label:"Total Bills",value:fmt(totBills),sub:pct+"% of check",color:"#ef4444"}),
-              h(Card,{label:"Still Owed",value:fmt(totBills-paidAmt),sub:(aBills.length-paidCt)+" unpaid",color:"#f59e0b"}),
-              h(Card,{label:"Transfer Out",value:fmt(remaining),sub:"to personal acct",color:remaining>=0?"#22c55e":"#ef4444"})
+            h("div",{style:{flex:1}},
+              h("label",{style:S.lbl},"Pay Date Label"),
+              h("input",{value:period.paycheckDate,onChange:e=>{const next=periods.map(p=>p.id===activePid?{...p,paycheckDate:e.target.value}:p);setPeriods(next);persist(next,paycheck,activePid,debts,history);},style:S.inp,placeholder:"e.g. Jun 26"})
+            )
+          ),
+          h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}},
+            h(Card,{label:"Total Bills",value:fmt(totBills),sub:pct+"% of check",color:"#ef4444"}),
+            h(Card,{label:"Still Owed",value:fmt(totBills-paidAmt),sub:(aBills.length-paidCt)+" unpaid",color:"#f59e0b"}),
+            h(Card,{label:"Transfer Out",value:fmt(remaining),sub:"to personal acct",color:remaining>=0?"#22c55e":"#ef4444"})
+          ),
+          h("div",{style:{background:"#1a1f2e",borderRadius:8,padding:"9px 13px",marginBottom:12,border:"1px solid #1e2230"}},
+            h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:11,color:"#8b92a5",marginBottom:5}},
+              h("span",null,"Paid this period"),
+              h("span",null,paidCt+"/"+aBills.length+" · "+fmt(paidAmt)+" of "+fmt(totBills))
             ),
-            // Progress bar
-            h("div",{style:{background:"#1a1f2e",borderRadius:8,padding:"9px 13px",marginBottom:12,border:"1px solid #1e2230"}},
-              h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:11,color:"#8b92a5",marginBottom:5}},
-                h("span",null,"Paid this period"),
-                h("span",null,paidCt+"/"+aBills.length+" · "+fmt(paidAmt)+" of "+fmt(totBills))
+            h("div",{style:{background:"#2a2f3e",borderRadius:4,height:6}},
+              h("div",{style:{width:(aBills.length?paidCt/aBills.length*100:0)+"%",height:"100%",background:"linear-gradient(90deg,"+col.accent+","+col.dark+")",borderRadius:4,transition:"width 0.3s"}})
+            )
+          ),
+          alerts.length>0&&view==="tracker"&&h("div",{style:{background:"#3b1500",border:"1px solid #92400e",borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:12,color:"#fcd34d"}},
+            h("strong",null,"⚠️ Manual payment needed: "),alerts.map(b=>b.name).join(" · ")
+          ),
+          view==="tracker"&&h(Fragment,null,
+            h("div",{style:{display:"flex",gap:6,marginBottom:10,alignItems:"center"}},
+              h("span",{style:{fontSize:11,color:"#6b7280",marginRight:2}},"Show:"),
+              ...[{k:"all",l:"All"},{k:"auto",l:"⚡ Auto"},{k:"manual",l:"✋ Manual"}].map(f=>
+                h("button",{key:f.k,onClick:()=>setBillFilter(f.k),style:{padding:"5px 11px",borderRadius:20,fontSize:12,fontWeight:600,cursor:"pointer",border:"none",background:billFilter===f.k?col.accent:"#1a1f2e",color:billFilter===f.k?"#fff":"#6b7280",outline:"2px solid "+(billFilter===f.k?col.accent:"#1e2230")}},f.l)
               ),
-              h("div",{style:{background:"#2a2f3e",borderRadius:4,height:6}},
-                h("div",{style:{width:(aBills.length?paidCt/aBills.length*100:0)+"%",height:"100%",background:"linear-gradient(90deg,"+col.accent+","+col.dark+")",borderRadius:4,transition:"width 0.3s"}})
+              h("button",{onClick:()=>setShowHist(!showHist),style:{fontSize:11,color:col.accent,background:"none",border:"none",cursor:"pointer",padding:0,marginLeft:"auto"}},showHist?"Hide history":"History")
+            ),
+            billFilter!=="all"&&(()=>{
+              const fil=aBills.filter(b=>billFilter==="auto"?b.autopay:!b.autopay);
+              const st=fil.reduce((s,b)=>s+(parseFloat(b.amount)||0),0);
+              const sp=fil.filter(b=>b.paid).reduce((s,b)=>s+(parseFloat(b.amount)||0),0);
+              const sc=fil.filter(b=>b.paid).length;
+              return h("div",{style:{background:billFilter==="auto"?"#1a1f2e":"#1f1a0e",border:"1px solid "+(billFilter==="auto"?"#6366f133":"#f59e0b33"),borderRadius:8,padding:"8px 13px",marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center"}},
+                h("span",{style:{fontSize:12,color:billFilter==="auto"?col.accent:"#f59e0b",fontWeight:600}},(billFilter==="auto"?"⚡ Autopay":"✋ Manual")+" — "+sc+"/"+fil.length+" paid"),
+                h("span",{style:{fontSize:13,fontWeight:800,color:"#f0f2f8"}},fmt(sp)," ",h("span",{style:{color:"#8b92a5",fontWeight:400}},"of "+fmt(st)))
+              );
+            })(),
+            showHist&&history.length>0&&h("div",{style:{background:"#1a1f2e",borderRadius:8,border:"1px solid #1e2230",padding:"10px 12px",marginBottom:12}},
+              h("div",{style:{fontSize:10,color:"#6b7280",textTransform:"uppercase",letterSpacing:1,marginBottom:7}},"Closed Periods"),
+              ...[...history].reverse().map((hh,i)=>
+                h("div",{key:i,style:{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:i<history.length-1?"1px solid #1e2230":"none",fontSize:12}},
+                  h("span",{style:{color:"#9ca3af"}},hh.period," ",h("span",{style:{color:"#6b7280"}},"("+hh.date+")")),
+                  h("span",{style:{color:"#22c55e",fontWeight:600}},fmt(hh.remaining)+" transferred")
+                )
               )
             ),
-            // Alert
-            alerts.length>0&&view==="tracker"&&h("div",{style:{background:"#3b1500",border:"1px solid #92400e",borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:12,color:"#fcd34d"}},
-              h("strong",null,"⚠️ Manual payment needed: "),alerts.map(b=>b.name).join(" · ")
-            ),
-            // Tracker view
-            view==="tracker"&&h(Fragment,null,
-              // Filter bar
-              h("div",{style:{display:"flex",gap:6,marginBottom:10,alignItems:"center"}},
-                h("span",{style:{fontSize:11,color:"#6b7280",marginRight:2}},"Show:"),
-                ...[{k:"all",l:"All"},{k:"auto",l:"⚡ Auto"},{k:"manual",l:"✋ Manual"}].map(f=>
-                  h("button",{key:f.k,onClick:()=>setBillFilter(f.k),style:{padding:"5px 11px",borderRadius:20,fontSize:12,fontWeight:600,cursor:"pointer",border:"none",background:billFilter===f.k?col.accent:"#1a1f2e",color:billFilter===f.k?"#fff":"#6b7280",outline:"2px solid "+(billFilter===f.k?col.accent:"#1e2230")}},f.l)
-                ),
-                h("button",{onClick:()=>setShowHist(!showHist),style:{fontSize:11,color:col.accent,background:"none",border:"none",cursor:"pointer",padding:0,marginLeft:"auto"}},showHist?"Hide history":"History")
-              ),
-              // Filter subtotal
-              billFilter!=="all"&&(()=>{
-                const fil=aBills.filter(b=>billFilter==="auto"?b.autopay:!b.autopay);
-                const st=fil.reduce((s,b)=>s+(parseFloat(b.amount)||0),0);
-                const sp=fil.filter(b=>b.paid).reduce((s,b)=>s+(parseFloat(b.amount)||0),0);
-                const sc=fil.filter(b=>b.paid).length;
-                return h("div",{style:{background:billFilter==="auto"?"#1a1f2e":"#1f1a0e",border:"1px solid "+(billFilter==="auto"?"#6366f133":"#f59e0b33"),borderRadius:8,padding:"8px 13px",marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center"}},
-                  h("span",{style:{fontSize:12,color:billFilter==="auto"?col.accent:"#f59e0b",fontWeight:600}},(billFilter==="auto"?"⚡ Autopay":"✋ Manual")+" — "+sc+"/"+fil.length+" paid"),
-                  h("span",{style:{fontSize:13,fontWeight:800,color:"#f0f2f8"}},fmt(sp)," ",h("span",{style:{color:"#8b92a5",fontWeight:400}},"of "+fmt(st)))
-                );
-              })(),
-              // History
-              showHist&&history.length>0&&h("div",{style:{background:"#1a1f2e",borderRadius:8,border:"1px solid #1e2230",padding:"10px 12px",marginBottom:12}},
-                h("div",{style:{fontSize:10,color:"#6b7280",textTransform:"uppercase",letterSpacing:1,marginBottom:7}},"Closed Periods"),
-                ...[...history].reverse().map((hh,i)=>
-                  h("div",{key:i,style:{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:i<history.length-1?"1px solid #1e2230":"none",fontSize:12}},
-                    h("span",{style:{color:"#9ca3af"}},hh.period," ",h("span",{style:{color:"#6b7280"}},"("+hh.date+")")),
-                    h("span",{style:{color:"#22c55e",fontWeight:600}},fmt(hh.remaining)+" transferred")
-                  )
-                )
-              ),
-              // Bill list
-              h("div",{style:{display:"flex",flexDirection:"column",gap:5}},
-                ...aBills.filter(b=>billFilter==="all"?true:billFilter==="auto"?b.autopay:!b.autopay).map(bill=>
-                  h(BillRow,{key:bill.id,bill,onTogglePaid:()=>togglePaid(bill.id),onAmt:v=>updAmt(bill.id,v),onDayChange:d=>updDay(bill.id,d),editingId,setEditingId,accent:col.accent})
-                )
-              ),
-              // Save & Bake
-              h(SaveBakeButton,{periods,paycheck,activePid,debts,history,lastSaved}),
-              // Reset section
-              h("div",{style:{marginTop:10,background:"#1a1f2e",border:"1px solid #2a2f3e",borderRadius:10,padding:"12px 14px"}},
-                h("div",{style:{fontSize:12,color:"#9ca3af",marginBottom:4,fontWeight:600}},"Start Next Pay Cycle"),
-                h("div",{style:{fontSize:11,color:"#6b7280",marginBottom:10,lineHeight:1.5}},"Clears all paid checkmarks and advances dates. Your amounts and history are kept."),
-                h(ResetButton,{onConfirm:closePeriod,label:col.label,accent:col.accent,dark:col.dark})
+            h("div",{style:{display:"flex",flexDirection:"column",gap:5}},
+              ...aBills.filter(b=>billFilter==="all"?true:billFilter==="auto"?b.autopay:!b.autopay).map(bill=>
+                h(BillRow,{key:bill.id,bill,onTogglePaid:()=>togglePaid(bill.id),onAmt:v=>updAmt(bill.id,v),onDayChange:d=>updDay(bill.id,d),editingId,setEditingId,accent:col.accent})
               )
             ),
-            // Manage view
-            view==="manage"&&h(ManageBills,{bills:period.bills,onToggle:togOn,onAdd:addBill,newBill,setNewBill,showAdd,setShowAdd,accent:col.accent,periodLabel:col.label,onDelete:id=>mutP(period.bills.filter(b=>b.id!==id))})
-          )
+            lastSaved&&h("div",{style:{marginTop:12,textAlign:"center",fontSize:11,color:"#22c55e"}},"✓ Last saved at "+lastSaved+" — synced to all devices"),
+            h("div",{style:{marginTop:10,background:"#1a1f2e",border:"1px solid #2a2f3e",borderRadius:10,padding:"12px 14px"}},
+              h("div",{style:{fontSize:12,color:"#9ca3af",marginBottom:4,fontWeight:600}},"Start Next Pay Cycle"),
+              h("div",{style:{fontSize:11,color:"#6b7280",marginBottom:10,lineHeight:1.5}},"Clears paid checkmarks and advances dates. Amounts and history are kept."),
+              h(ResetButton,{onConfirm:closePeriod,label:col.label,accent:col.accent,dark:col.dark})
+            )
+          ),
+          view==="manage"&&h(ManageBills,{bills:period.bills,onToggle:togOn,onAdd:addBill,newBill,setNewBill,showAdd,setShowAdd,accent:col.accent,periodLabel:col.label,onDelete:id=>mutP(period.bills.filter(b=>b.id!==id))})
+        )
     )
   );
 }
